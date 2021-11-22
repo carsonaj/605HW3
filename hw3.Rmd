@@ -1,0 +1,167 @@
+---
+title: ''
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mvnfast)
+library(matrixcalc)
+library(varbvs)
+library(horseshoe)
+source("var_sel_data_gen.R")
+source("var_sel_MCMC.R")
+source("eval.R")
+source("spike_n_slab.R")
+source("horseshoe.R")
+```
+
+# Generate Data:
+```{r}
+set.seed(1)
+n_vec <- c(100, 200)
+p_vec <- c(200, 500)
+snr_vec <- c(2, 4)
+data_list <- vector("list", 8)
+for (i in 0:1) {
+    for (j in 0:1) {
+        for (k in 0:1) {
+            n <- n_vec[i+1]
+            p <- p_vec[j+1]
+            snr <- snr_vec[k+1]
+            data <- get_data(n, p, snr)
+            data_list[[i * 2^2 + j * 2 + k + 1]] <- list("n" = n, "p" = p, "snr" = snr, "data" = data)
+        }
+    }
+}
+```
+
+# Spike and Slab:
+```{r}
+set.seed(12)
+
+times <- rep(0, 8)
+supp_sizes <- rep(0, 8)
+zero_ones <- rep(0, 8)
+
+for (i in 1:8) {
+    print(i)
+    data_i <- data_list[[i]]$data
+    
+    gam0 <- data_i$b0
+    start_time <- Sys.time()
+    gam_hat = spike_n_slab(data_i)
+    end_time <- Sys.time()
+    
+    times[i] <- end_time - start_time
+    zero_ones[i] <- zero_one(gam0, gam_hat)
+    supp_sizes[i] <- supp_size(gam_hat) 
+}
+
+res_mat <- matrix(0, 8, 6)
+
+for (i in 1:8) {
+    res_mat[i, 1] <- data_list[[i]]$n
+    res_mat[i, 2] <- data_list[[i]]$p
+    res_mat[i, 3] <- data_list[[i]]$snr
+}
+
+res_mat[ , 4] <- times
+res_mat[ , 5] <- supp_sizes
+res_mat[ , 6] <- zero_ones
+
+df <- data.frame(res_mat)
+names(df) <- c("n", "p", "snr", "times", "supp_sizes", "zero_ones")
+
+df
+```
+
+# Variational Bayes:
+```{r}
+set.seed(12)
+
+times <- rep(0, 8)
+supp_sizes <- rep(0, 8)
+zero_ones <- rep(0, 8)
+
+for (i in 1:8) {
+    print(i)
+    data_i <- data_list[[i]]$data
+    xi <- data_i$x
+    yi <- data_i$y
+    pi <- ncol(xi)
+    gam0 <- data_i$b0
+    
+    start_time <- Sys.time()
+    ind_hat = varbvs(xi, NULL, yi, verbose = F)$pip
+    end_time <- Sys.time()
+    
+    gam_hat <- rep(0, pi)
+    gam_hat[ind_hat] <- 1
+    times[i] <- end_time - start_time
+    zero_ones[i] <- zero_one(gam0, gam_hat)
+    supp_sizes[i] <- supp_size(gam_hat) 
+}
+
+res_mat <- matrix(0, 8, 6)
+
+for (i in 1:8) {
+    res_mat[i, 1] <- data_list[[i]]$n
+    res_mat[i, 2] <- data_list[[i]]$p
+    res_mat[i, 3] <- data_list[[i]]$snr
+}
+
+res_mat[ , 4] <- times
+res_mat[ , 5] <- supp_sizes
+res_mat[ , 6] <- zero_ones
+
+df <- data.frame(res_mat)
+names(df) <- c("n", "p", "snr", "times", "supp_sizes", "zero_ones")
+
+df
+```
+
+
+# Horseshoe 
+```{r}
+# (wrapper courtesy of Felix)
+set.seed(12)
+
+times <- rep(0, 8)
+supp_sizes <- rep(0, 8)
+zero_ones <- rep(0, 8)
+
+for (i in 1:8) {
+    print(i)
+    data_i <- data_list[[i]]$data
+    xi <- data_i$x
+    yi <- data_i$y
+    pi <- ncol(xi)
+    gam0 <- data_i$b0
+    
+    InferenceResultList <- HorseshoeMCMC(xi, yi)
+    gam_hat <- PostHorseshoeMCMC(InferenceResultList)
+
+    times[i] <- InferenceResultList$CPUTime
+    zero_ones[i] <- zero_one(gam0, gam_hat)
+    supp_sizes[i] <- supp_size(gam_hat) 
+}
+
+res_mat <- matrix(0, 8, 6)
+
+for (i in 1:8) {
+    res_mat[i, 1] <- data_list[[i]]$n
+    res_mat[i, 2] <- data_list[[i]]$p
+    res_mat[i, 3] <- data_list[[i]]$snr
+}
+
+res_mat[ , 4] <- times
+res_mat[ , 5] <- supp_sizes
+res_mat[ , 6] <- zero_ones
+
+df <- data.frame(res_mat)
+names(df) <- c("n", "p", "snr", "times", "supp_sizes", "zero_ones")
+
+df
+```
+
